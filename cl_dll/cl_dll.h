@@ -38,3 +38,7 @@ typedef int (*pfnUserMsgHook)(const char* pszName, int iSize, void* pbuf);
 #include "../dlls/cdll_dll.h"
 
 extern cl_enginefunc_t gEngfuncs;
+extern cldll_func_t cl_funcs;
+
+extern cldll_func_dst_t* g_pcldstAddrs;
+extern modfuncs_s* g_pmodfuncs;

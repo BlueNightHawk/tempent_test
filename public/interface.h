@@ -25,8 +25,6 @@
 
 #include "Platform.h"
 
-void* Sys_GetProcAddress(void* pModuleHandle, const char* pName);
-
 // All interfaces derive from this.
 class IBaseInterface
 {
@@ -126,3 +124,5 @@ extern void Sys_UnloadModule(CSysModule* pModule);
 extern CreateInterfaceFn Sys_GetFactory(CSysModule* pModule);
 
 #endif // MSVC 6.0
+
+void* Sys_GetProcAddress(void* pModuleHandle, const char* pName);
