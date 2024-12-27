@@ -1,11 +1,40 @@
 #include "cl_dll.h"
 #include "Exports.h"
 
+#include "triangleapi.h"
+
+#include <vector>
+#include "studio.h"
+#include "com_model.h"
+
+#include "r_studioint.h"
+
+static TEMPENTITY g_clTempEnts[MAX_CL_TEMPENTS];
+std::vector<cl_entity_s*> g_clVisEnts;
+std::vector<cl_entity_s*> g_clTransVisEnts;
+
+bool g_bReplacedTempEnts = false;
+
+engine_studio_api_s IEngineStudio, IOriginalEngineStudio;
+r_studio_interface_t studio_iface;
+
 cl_enginefunc_t gEngfuncs;
 cldll_func_t cl_funcs;
 
 cldll_func_dst_t* g_pcldstAddrs;
 modfuncs_s* g_pmodfuncs;
+
+ref_params_s g_refdef;
+
+extern cl_entity_s* GetCurrentEntity();
+extern void CL_DrawTempEnts();
+extern void CL_DrawTransTempEnts();
+
+extern void SetRenderModel(struct model_s* model);
+extern void StudioSetupModel(int bodypart, void** _ppbodypart, void** _ppsubmodel);
+extern void StudioDrawPoints();
+
+extern int CL_AddVisibleEntity(cl_entity_t* pEntity);
 
 extern "C" void DLLEXPORT F(void* pv)
 {
@@ -71,11 +100,13 @@ void DLLEXPORT HUD_PostRunCmd(struct local_state_s* from, struct local_state_s* 
 // From cdll_int
 int DLLEXPORT Initialize(cl_enginefunc_t* pEnginefuncs, int iVersion)
 {
+	gEngfuncs = *pEnginefuncs;
 	return cl_funcs.pInitFunc(pEnginefuncs, iVersion);
 }
 
 int DLLEXPORT HUD_VidInit(void)
 {
+	g_bReplacedTempEnts = false;
 	return cl_funcs.pHudVidInitFunc();
 }
 
@@ -186,7 +217,26 @@ void DLLEXPORT HUD_TxferPredictionData(struct entity_state_s* ps, const struct e
 
 void DLLEXPORT HUD_TempEntUpdate(double frametime, double client_time, double cl_gravity, struct tempent_s** ppTempEntFree, struct tempent_s** ppTempEntActive, int (*Callback_AddVisibleEntity)(struct cl_entity_s* pEntity), void (*Callback_TempEntPlaySound)(struct tempent_s* pTemp, float damp))
 {
-	cl_funcs.pTempEntUpdate(frametime, client_time, cl_gravity, ppTempEntActive, ppTempEntActive, Callback_AddVisibleEntity, Callback_TempEntPlaySound);
+	// Replace engine side tempent pointers with our custom one
+	if (!g_bReplacedTempEnts)
+	{
+		memset(g_clTempEnts, 0, sizeof(tempent_s) * MAX_CL_TEMPENTS);
+
+		for (size_t i = 0; i < MAX_CL_TEMPENTS; i++)
+		{
+			g_clTempEnts[i].next = &g_clTempEnts[i + 1];
+		}
+
+		g_clTempEnts[MAX_CL_TEMPENTS - 1].next = nullptr;
+
+		*ppTempEntFree = g_clTempEnts;
+		*ppTempEntActive = nullptr;
+		g_bReplacedTempEnts = true;
+		g_clVisEnts.clear();
+		g_clTransVisEnts.clear();
+	}
+
+	cl_funcs.pTempEntUpdate(frametime, client_time, cl_gravity, ppTempEntFree, ppTempEntActive, CL_AddVisibleEntity, Callback_TempEntPlaySound);
 }
 
 struct cl_entity_s DLLEXPORT* HUD_GetUserEntity(int index)
@@ -261,24 +311,40 @@ void DLLEXPORT IN_ClearStates(void)
 // From tri
 void DLLEXPORT HUD_DrawNormalTriangles(void)
 {
+	CL_DrawTempEnts();
+	CL_DrawTransTempEnts();
 	cl_funcs.pDrawNormalTriangles();
 }
 
 void DLLEXPORT HUD_DrawTransparentTriangles(void)
 {
 	cl_funcs.pDrawTransparentTriangles();
+
+	g_clVisEnts.clear();
+	g_clTransVisEnts.clear();
 }
 
 
 // From view
 void DLLEXPORT V_CalcRefdef(struct ref_params_s* pparams)
 {
-	return cl_funcs.pCalcRefdef(pparams);
+	bool firstview = pparams->nextView == 0;
+	cl_funcs.pCalcRefdef(pparams);
+	if (firstview)
+		g_refdef = *pparams;
 }
 
 
 // From GameStudioModelRenderer
 int DLLEXPORT HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppinterface, struct engine_studio_api_s* pstudio)
 {
-	return cl_funcs.pStudioInterface(version, ppinterface, pstudio);
+	IEngineStudio = IOriginalEngineStudio = *pstudio;
+	IEngineStudio.GetCurrentEntity = &GetCurrentEntity;
+	IEngineStudio.SetRenderModel = &SetRenderModel;
+	IEngineStudio.StudioSetupModel = &StudioSetupModel;
+	IEngineStudio.StudioDrawPoints = &StudioDrawPoints;
+
+	auto result = cl_funcs.pStudioInterface(version, ppinterface, &IEngineStudio);
+	studio_iface = **ppinterface;
+	return result;
 }

@@ -42,3 +42,7 @@ extern cldll_func_t cl_funcs;
 
 extern cldll_func_dst_t* g_pcldstAddrs;
 extern modfuncs_s* g_pmodfuncs;
+
+// Clientside tempentities
+#define MAX_CL_TEMPENTS 2048
+#define MAX_CL_VISENTS MAX_CL_TEMPENTS
